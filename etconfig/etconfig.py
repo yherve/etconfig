@@ -15,12 +15,11 @@ network "mynet1name" {
     }
 }
 """
-from __future__ import print_function
+from __future__ import print_function, unicode_literals
 
 import re
 import io
 import sys
-from copy import deepcopy
 from lark import Lark, Transformer, v_args
 from lark.exceptions import LarkError
 
@@ -249,55 +248,6 @@ class ETreeTransformer(Transformer):
         return elt
 
 
-class ElementConf(object):
-    """class similar to ElementTree. Acts as a wrapper of root Element"""
-
-    def __init__(self, root=None):
-        """
-        root is an instance of "Element"
-        """
-        self.root = root
-
-    def getroot(self):
-        "get root element"
-        return self.root
-
-    def find(self, match):
-        "Same as Element.find(), starting at the root of the tree."
-        if self.root is not None:
-            return self.root.find(match)
-        return None
-
-    def findall(self, match):
-        "Same as Element.findall(), starting at the root of the tree."
-        if self.root is not None:
-            return self.root.findall(match)
-        return None
-
-    def iter(self, tag=None):
-        "Creates and returns a tree iterator for the root element"
-        if self.root is not None:
-            return self.root.iter(tag)
-        return None
-
-    def iterfind(self, match):
-        "Finds all matching subelements, by tag name or path"
-        if self.root is not None:
-            return self.root.iterfind(match)
-        return None
-
-    def parse(self, source, **args):
-        """load a config from a string"""
-        transformer = ETreeTransformer(**args)
-        parser = Lark(GRAMMAR, parser='lalr', transformer=transformer)
-        self.root = parser.parse(source)
-
-    def toxml(self, pretty_print=False):
-        "return a xml representation of elementconf as a string"
-        if self.root is not None:
-            res = etree.tostring(self.root, pretty_print=pretty_print)
-            return res
-        return None
 
 def loads(strng, root_name=DEFAULT_ROOT_NAME,
           single_root_node=False, id_mapper=None):
@@ -314,15 +264,18 @@ def loads(strng, root_name=DEFAULT_ROOT_NAME,
     see below examples of id_mapper
 
     Returns:
-       instance of ElementConf
+       instance of etree.Element
     Raises:
        ElementConfError
     """
-    el_conf = ElementConf()
-    el_conf.parse(strng, root_name=root_name,
-                  single_root_node=single_root_node,
-                  id_mapper=id_mapper)
-    return el_conf
+    transformer = ETreeTransformer(root_name=root_name,
+                                   single_root_node=single_root_node,
+                                   id_mapper=id_mapper)
+
+    parser = Lark(GRAMMAR, parser='lalr', transformer=transformer)
+    root = parser.parse(strng)
+    return root
+
 
 def load(fname, root_name=DEFAULT_ROOT_NAME,
          single_root_node=False, id_mapper=None):
@@ -330,6 +283,8 @@ def load(fname, root_name=DEFAULT_ROOT_NAME,
     with io.open(fname, encoding="utf-8") as config_file:
         content = config_file.read()
         return loads(content, root_name, single_root_node, id_mapper)
+
+
 
 
 SIMPLE_VALUE_RE=re.compile(SIMPLE_VALUE)
@@ -340,58 +295,8 @@ def _maybe_quote(value):
     v = value if no_quote_needed else '"' + value + '"'
     return v
 
-
-def elt_merge(change, base):
-    """
-    merge 'change' element into 'base'
-
-    :param change: instance of Element
-    :param base: instance of Element
-
-    :returns: nothing, 'base' object changed directly
-    """
-    for k,v in change.attrib.items():
-        base.set(k, v)
-    for child_change in change:
-        child_base = base.find(child_change.tag)
-        if child_base is not None:
-            elt_merge(child_change, child_base)
-        else:
-            # adding new node. just need to deep copy
-            base.append(deepcopy(child_change))
-
-
-
-def el_to_struct(elt, print_root=True):
-    children = []
-
-    attrs = dict(elt.attrib)
-    # if len(attrs):
-    #     children.append(attrs)
-    # else:
-    #     children.append({})
-
-    if elt.text:
-        attrs["_TEXT"] = elt.text
-
-    children.append(attrs)
-
-    for ch in elt:
-        ch_struct = el_to_struct(ch)
-        children.append(ch_struct)
-
-    if len(children) == 1 and children[0] is None:
-        children={}
-
-    if print_root:
-        res = {elt.tag:children}
-    else:
-        res = children[1:]
-    return res
-
-
-
-def el_to_conf(elt, indent=0, indent_chars=" "*4, print_root=True):
+# bug: need to escape '\n' and/or use multiline
+def dumps(elt, indent=0, indent_chars=" "*4, print_root=True):
     """dump Element instance to conf format
 
     :param elt: instance of Element
@@ -424,12 +329,13 @@ def el_to_conf(elt, indent=0, indent_chars=" "*4, print_root=True):
     for name, value in elt.items():
         v = _maybe_quote(value)
         fmt = '{}{:'+str(mx)+'} = {}\n'
-        res +=fmt.format(indent_str, name.encode('utf8'), v.encode('utf8'))
+        # res +=fmt.format(indent_str, name.encode('utf8'), v.encode('utf8'))
+        res +=fmt.format(indent_str, name, v)
 
     for child in elt:
         if not print_root:
             res +='\n'
-        res += el_to_conf(child, indent)
+        res += dumps(child, indent)
 
     if print_root:
         indent-=1
@@ -438,24 +344,28 @@ def el_to_conf(elt, indent=0, indent_chars=" "*4, print_root=True):
     return res
 
 
-def make_id_mapper_attr(attr_name):
+def id2attr(attr_name):
     """returns a function to map id to attribute.
 
-    Example with make_id_mapper_attr("myname"):
+    Example:
 
-    user "toto" {}
-      becomes
+    etconfig.loads('user "toto"{}', id_mapper = id2attr('myname'))
+
+    Result:
+
     <user myname="toto"/>
     """
     return lambda elt, idlist: elt.set(attr_name, idlist[-1])
 
-def make_id_mapper_elt(elt_name):
+
+def id2elt(elt_name):
     """returns a function to map id to sub-element.
 
-    Example with make_id_mapper_elt("myname"):
+    Example:
 
-    user "toto" {}
-      becomes
+    etconfig.loads('user "toto"{}', id_mapper = id2elt('myname'))
+
+    Result:
     <user>
        <myname>toto</myname>
     </user>

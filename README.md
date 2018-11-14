@@ -1,15 +1,11 @@
 etconfig
 ===============================
 
-version number: 0.0.1
-author: Yann Hervé
 
 Overview
 --------
 
 config library based on ElementTree api
-
-Warning: work in progress. api is likely to evolve
 
 Installation / Usage
 --------------------
