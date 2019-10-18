@@ -10,12 +10,7 @@ config library based on ElementTree api
 Installation / Usage
 --------------------
 
-To install use pip:
-
-    $ pip install etconfig
-
-
-Or clone the repo:
+clone the repo:
 
     $ git clone https://github.com/yherve/etconfig.git
     $ python setup.py install
